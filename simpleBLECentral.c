@@ -249,12 +249,13 @@ static gapDevRec_t devList[DEFAULT_MAX_SCAN_RES];
 
 // Scanning state
 static bool scanningStarted = FALSE;
+//static bool addingStarted = FALSE;
 
 // RSSI polling state
 static bool rssiStarted = FALSE;
 
 // Connection handle of current connection 
-static uint16_t connHandle = GAP_CONNHANDLE_INIT;
+static uint16_t connHandle[10] = {GAP_CONNHANDLE_INIT};
 
 // Application state
 static uint8_t state = BLE_STATE_IDLE;
@@ -267,7 +268,7 @@ static uint16_t svcStartHdl = 0;
 static uint16_t svcEndHdl = 0;
 
 // Discovered characteristic handle
-static uint16_t charHdl = 0;
+static uint16_t charHdl[10] = {0};
 
 // Value to write
 static uint8_t charVal = 0;
@@ -320,7 +321,7 @@ static void SimpleBLECentral_pairStateCB(uint16_t connHandle, uint8_t state,
 
 static uint8_t SimpleBLECentral_enqueueMsg(uint8_t event, uint8_t status, 
                                            uint8_t *pData);
-
+char* itoa(uint8 val,char *buf, int base);
 void SimpleBLECentral_startDiscHandler(UArg a0);
 void SimpleBLECentral_keyChangeHandler(uint8 keysPressed);
 
@@ -343,7 +344,7 @@ void ApplicationLayer_UartInit(void){
     if (uart == NULL) {
         System_abort("Error opening the UART");
     }
-    UART_write(uart, echoPrompt, sizeof(echoPrompt));
+  //  UART_write(uart, echoPrompt, sizeof(echoPrompt));
 }
 /*********************************************************************************************************Yaswanth Malisetty code Ends*/
 
@@ -415,6 +416,7 @@ static void SimpleBLECentral_init(void)
   // Register the current thread as an ICall dispatcher application
   // so that the application can send and receive messages.
 	  ApplicationLayer_UartInit();
+
   ICall_registerApp(&selfEntity, &sem);
   // Hard code the DB Address till CC2650 board gets its own IEEE address
   //uint8 bdAddress[B_ADDR_LEN] = { 0x11, 0x11, 0x11, 0x11, 0x11, 0x11 };
@@ -483,6 +485,16 @@ static void SimpleBLECentral_init(void)
   
   LCD_WRITE_STRING("BLE Central", LCD_PAGE0);
 }
+char* itoa(uint8 val,char *buf, int base)
+{
+int i = 30;
+for(; val && i ; --i, val /= base)
+buf[i] = "0123456789abcdef"[val % base];
+return &buf[i+1];
+}
+
+
+
 
 /*********************************************************************
  * @fn      SimpleBLECentral_taskFxn
@@ -571,178 +583,84 @@ static void SimpleBLECentral_taskFxn(UArg a0, UArg a1)
     {      
       events &= ~SBC_PASSCODE_NEEDED_EVT;
       
-      SimpleBLECentral_processPasscode(connHandle, displayPasscode);
+      SimpleBLECentral_processPasscode(connHandle[scanIdx], displayPasscode);
     }
     if((UARTCharsAvail(Board_UART0)&&procedureInProgress == FALSE)&&listenAtUartRx)
-    {
-    	UART_read(uart, &input, 1);
-     //  sleep()
-       if(input=='U'){
-
-     	    UART_write(uart, echoPrompt, sizeof(echoPrompt));
-
-     	      // Start or stop discovery
-   /*  	      if (state != BLE_STATE_CONNECTED)
-     	      {
-     	        if (!scanningStarted)
-     	        {
-     	          scanningStarted = TRUE;
-     	          scanRes = 0;
-
-     	          LCD_WRITE_STRING("Discovering...", LCD_PAGE2);
-     	          LCD_WRITE_STRING("", LCD_PAGE3);
-     	          LCD_WRITE_STRING("", LCD_PAGE4);
-
-     	          GAPCentralRole_StartDiscovery(DEFAULT_DISCOVERY_MODE,
-     	                                        DEFAULT_DISCOVERY_ACTIVE_SCAN,
-     	                                        DEFAULT_DISCOVERY_WHITE_LIST);
-     	        }
-     	        else
-     	        {
-     	          GAPCentralRole_CancelDiscovery();
-     	        }
-     	      }
-     	      else if (state == BLE_STATE_CONNECTED &&
-     	               charHdl != 0                 &&
-     	               procedureInProgress == FALSE)
-     	      {
-     */	        uint8_t status;
-
-     	        // Do a read or write as long as no other read or write is in progress
-     	     //   if (doWrite)
-     	     //   {
-     	          // Do a write
+     {
+       uint8_t status;
+       UART_read(uart, &input, 1);
+       UART_write(uart,&input,1);
+      /* if(input=='R'){
+    	   attReadReq_t req;
+    	   req.handle = charHdl[scanIdx];
+    	   status = GATT_ReadCharValue(connHandle[scanIdx], &req, selfEntity);
+       }
+       */if(input=='A'){ // Read BLE 1 Led status
+    	   attReadReq_t req;
+    	   req.handle = charHdl[0];
+    	   status = GATT_ReadCharValue(connHandle[scanIdx], &req, selfEntity);
+       }else if(input=='B'){ // Read BLE 2 Led status
+    	   attReadReq_t req;
+    	   req.handle = charHdl[1];
+    	   status = GATT_ReadCharValue(connHandle[scanIdx], &req, selfEntity);
+       }else{
+    	   uint8 numAllocConns=0,numActiveConns=0;
+    		  HCI_EXT_GetNumConnsCmd((uint8 *)&numAllocConns,(uint8 *)&numActiveConns);
+    		  char def[32]={0},connec[32]={0};
+    		  char *str=itoa(numAllocConns,def, 10);
+    		  char *act=itoa(numActiveConns,connec, 10);
+    		  itoa(numActiveConns,connec, 10);
+    		  //printf(def,"%d",&numAllocConns);
+    		  //printf(connec,"%d",&numActiveConns);
+    		  UART_write(uart,str,strlen(str));
+    		  UART_write(uart," ",strlen("\n"));
+    		  UART_write(uart,act,strlen(act));
+    		  UART_write(uart," ",strlen("\n"));
+    		  uint8_t wrIndex=0;
+     	    //UART_write(uart, echoPrompt, sizeof(echoPrompt));
+  	            // Do a read or write as long as no other read or write is in progress
      	          attWriteReq_t req;
-     	          UART_write(uart, "sending write req\n", 18);
 
-     	          req.pValue = GATT_bm_alloc(connHandle, ATT_WRITE_REQ, 1, NULL);
+     	         // UART_write(uart, "sending write req\n", 18);
+     	          if(input>='1'&&input<'3'){
+     	        		input=input;
+     	        		 UART_write(uart,"wrIndex=0",strlen("wrIndex=0"));
+    		    	    wrIndex=0;
+     	          }else if(input>'2'&&input<'5'){
+      	        		input=input-2;
+    	        		 UART_write(uart,"wrIndex=1",strlen("wrIndex=0"));
+      	        	    wrIndex=1;
+         	      }else if(input>'4'&&input<'7'){
+  	        		 UART_write(uart,"wrIndex=2",strlen("wrIndex=0"));
+       	        		input=input-4;
+       	        	    wrIndex=2;
+     	          }
+     	          req.pValue = GATT_bm_alloc(connHandle[wrIndex], ATT_WRITE_REQ, 1, NULL);
      	          if ( req.pValue != NULL )
      	          {
-     	            req.handle = charHdl;
+     	        	req.handle = charHdl[wrIndex];
      	            req.len = 1;
-     	            req.pValue[0] = charVal;
+     	            req.pValue[0] = input;
+     	           charVal=input;
      	            req.sig = 0;
      	            req.cmd = 0;
 
-     	            status = GATT_WriteCharValue(connHandle, &req, selfEntity);
+     	            status = GATT_WriteCharValue(connHandle[wrIndex], &req, selfEntity);
      	            if ( status != SUCCESS )
      	            {
      	              GATT_bm_free((gattMsg_t *)&req, ATT_WRITE_REQ);
      	            }
      	          }
-     	    /*    }
-     	        else
-     	        {
-     	          // Do a read
-     	          attReadReq_t req;
-
-     	          req.handle = charHdl;
-     	          status = GATT_ReadCharValue(connHandle, &req, selfEntity);
-     	        }
-*/
-     	        if (status == SUCCESS)
+       	        if (status == SUCCESS)
      	        {
      	          procedureInProgress = TRUE;
      	          doWrite = !doWrite;
      	        }
-     	      }
-
-
+     	 }
      	//PIN_setOutputValue(ledPinHandle, Board_LED1, 0);
-       }
-     /*  if(input=='L'){
-           // Display discovery results
-           if (!scanningStarted && scanRes > 0)
-           {
-             // Increment index of current result (with wraparound)
-             scanIdx++;
-             if (scanIdx >= scanRes)
-             {
-               scanIdx = 0;
-             }
-
-             LCD_WRITE_STRING_VALUE("Device", (scanIdx + 1), 10, LCD_PAGE2);
-             LCD_WRITE_STRING(Util_convertBdAddr2Str(devList[scanIdx].addr), LCD_PAGE3);
-           }
-
-         }
-       if(input=='R'){
-                 // Connection update
-           if (state == BLE_STATE_CONNECTED)
-           {
-             GAPCentralRole_UpdateLink(connHandle,
-                                       DEFAULT_UPDATE_MIN_CONN_INTERVAL,
-                                       DEFAULT_UPDATE_MAX_CONN_INTERVAL,
-                                       DEFAULT_UPDATE_SLAVE_LATENCY,
-                                       DEFAULT_UPDATE_CONN_TIMEOUT);
-           }
-
-         }
-
-       if(input=='S'){
-                       uint8_t addrType;
-           uint8_t *peerAddr;
-
-           // Connect or disconnect
-           if (state == BLE_STATE_IDLE)
-           {
-             // if there is a scan result
-             if (scanRes > 0)
-             {
-               // connect to current device in scan result
-               peerAddr = devList[scanIdx].addr;
-               addrType = devList[scanIdx].addrType;
-
-               state = BLE_STATE_CONNECTING;
-
-               GAPCentralRole_EstablishLink(DEFAULT_LINK_HIGH_DUTY_CYCLE,
-                                            DEFAULT_LINK_WHITE_LIST,
-                                            addrType, peerAddr);
-
-               LCD_WRITE_STRING("Connecting", LCD_PAGE2);
-               LCD_WRITE_STRING(Util_convertBdAddr2Str(peerAddr), LCD_PAGE3);
-               LCD_WRITE_STRING("", LCD_PAGE4);
-             }
-           }
-           else if (state == BLE_STATE_CONNECTING ||
-                     state == BLE_STATE_CONNECTED)
-           {
-             // disconnect
-             state = BLE_STATE_DISCONNECTING;
-
-             GAPCentralRole_TerminateLink(connHandle);
-
-             LCD_WRITE_STRING("Disconnecting", LCD_PAGE2);
-             LCD_WRITE_STRING("", LCD_PAGE4);
-           }
-
-         }
-       
-
-       if(input=='D'){
-                       // Start or cancel RSSI polling
-           if (state == BLE_STATE_CONNECTED)
-           {
-             if (!rssiStarted)
-             {
-               rssiStarted = TRUE;
-               GAPCentralRole_StartRssi(connHandle, DEFAULT_RSSI_PERIOD);
-             }
-             else
-             {
-               rssiStarted = FALSE;
-               GAPCentralRole_CancelRssi(connHandle);
-
-               LCD_WRITE_STRING("RSSI Cancelled", LCD_PAGE4);
-             }
-           }
-
-          
-         }
-         */
-       UART_write(uart,&input,1);
-    }
-  }
+       //UART_write(uart,&input,1);
+     }//if uart available
+   }//for
 }
 
 /*********************************************************************
@@ -812,6 +730,7 @@ static void SimpleBLECentral_processAppMsg(sbcEvt_t *pMsg)
  */
 static void SimpleBLECentral_processRoleEvent(gapCentralRoleEvent_t *pEvent)
 {
+	UART_write(uart,"\r\n\f SimpleBLECentral_processRoleEvent:",strlen("\r\n\f SimpleBLECentral_processRoleEvent:"));
   switch (pEvent->gap.opcode)
   {
     case GAP_DEVICE_INIT_DONE_EVENT:  
@@ -864,7 +783,7 @@ static void SimpleBLECentral_processRoleEvent(gapCentralRoleEvent_t *pEvent)
       
     case GAP_DEVICE_DISCOVERY_EVENT:
       {
-    	  UART_write(uart, "\nGAP_DEVICE_DISCOVERY_EVENT\n", 28);
+    	  UART_write(uart, "\fGAP_DEVICE_DISCOVERY_EVENT\n", 28);
     	  // discovery complete
         scanningStarted = FALSE;
 
@@ -882,21 +801,40 @@ static void SimpleBLECentral_processRoleEvent(gapCentralRoleEvent_t *pEvent)
         if (scanRes > 0)
         {
           LCD_WRITE_STRING("<- To Select", LCD_PAGE3);
+          char def[32]={0};
+          char *str=itoa(scanRes,def, 10);
+          UART_write(uart,"found:",strlen("found:"));
+          UART_write(uart,str,strlen(str));
+      //    int i=0;
+          /*for(i=0;i<scanRes;i++){
+        	 UART_write(uart,Util_convertBdAddr2Str(devList[i].addr),strlen(Util_convertBdAddr2Str(devList[i].addr)));
+        	 uint8_t addrType;
+        	 uint8_t *peerAddr;
+        	 peerAddr = devList[i].addr;
+			 addrType = devList[i].addrType;
 
+			 state = BLE_STATE_CONNECTING;
+			// while(addingStarted);
+			 GAPCentralRole_EstablishLink(DEFAULT_LINK_HIGH_DUTY_CYCLE,
+										  DEFAULT_LINK_WHITE_LIST,
+										  addrType, peerAddr);
+			 addingStarted=TRUE;
+			 UART_write(uart,"\fAfterAdding",strlen("\fAfterAdding"));
+          }
+	*/
           //*********************************************************************************added code starts here by Yash
           if (!scanningStarted && scanRes > 0)
            {
              // Increment index of current result (with wraparound)
-             scanIdx++;
+             scanIdx=0;
              if (scanIdx >= scanRes)
              {
                scanIdx = 0;
              }
 
              LCD_WRITE_STRING_VALUE("Device", (scanIdx + 1), 10, LCD_PAGE2);
+
              LCD_WRITE_STRING(Util_convertBdAddr2Str(devList[scanIdx].addr), LCD_PAGE3);
-             uint8_t addrType;
-           uint8_t *peerAddr;
 
              if (state == BLE_STATE_IDLE)
                         {
@@ -904,7 +842,10 @@ static void SimpleBLECentral_processRoleEvent(gapCentralRoleEvent_t *pEvent)
                           if (scanRes > 0)
                           {
                             // connect to current device in scan result
-                            peerAddr = devList[scanIdx].addr;
+                        	  uint8_t addrType;
+                        	  uint8_t *peerAddr;
+
+                        	  peerAddr = devList[scanIdx].addr;
                             addrType = devList[scanIdx].addrType;
 
                             state = BLE_STATE_CONNECTING;
@@ -924,22 +865,22 @@ static void SimpleBLECentral_processRoleEvent(gapCentralRoleEvent_t *pEvent)
         }
 
         // initialize scan index to last device
-        scanIdx = scanRes;
+        //scanIdx = scanRes;
       }
       break;
 
     case GAP_LINK_ESTABLISHED_EVENT:
       {
-    	  UART_write(uart, "\nGAP_LINK_ESTABLISHED_EVENT\n", 28);
+    	  UART_write(uart, "\fGAP_LINK_ESTABLISHED_EVENT\n", 28);
 
         if (pEvent->gap.hdr.status == SUCCESS)
         {
           state = BLE_STATE_CONNECTED;
-          connHandle = pEvent->linkCmpl.connectionHandle;
+          connHandle[scanIdx] = pEvent->linkCmpl.connectionHandle;
           procedureInProgress = TRUE;    
 
           // If service discovery not performed initiate service discovery
-          if (charHdl == 0)
+          if (charHdl[scanIdx] == 0)
           {
             Util_startClock(&startDiscClock);
           }
@@ -951,7 +892,7 @@ static void SimpleBLECentral_processRoleEvent(gapCentralRoleEvent_t *pEvent)
         else
         {
           state = BLE_STATE_IDLE;
-          connHandle = GAP_CONNHANDLE_INIT;
+          connHandle[scanIdx] = GAP_CONNHANDLE_INIT;
           rssiStarted = FALSE;
           discState = BLE_DISC_STATE_IDLE;
           
@@ -959,16 +900,19 @@ static void SimpleBLECentral_processRoleEvent(gapCentralRoleEvent_t *pEvent)
           LCD_WRITE_STRING_VALUE("Reason:", pEvent->gap.hdr.status, 10, 
                                  LCD_PAGE3);
         }
+
+
+
       }
       break;
 
     case GAP_LINK_TERMINATED_EVENT:
       {
         state = BLE_STATE_IDLE;
-        connHandle = GAP_CONNHANDLE_INIT;
+        connHandle[scanIdx] = GAP_CONNHANDLE_INIT;
         rssiStarted = FALSE;
         discState = BLE_DISC_STATE_IDLE;
-        charHdl = 0;
+        charHdl[scanIdx] = 0;
         procedureInProgress = FALSE;
           
         LCD_WRITE_STRING("Disconnected", LCD_PAGE2);
@@ -980,10 +924,74 @@ static void SimpleBLECentral_processRoleEvent(gapCentralRoleEvent_t *pEvent)
 
     case GAP_LINK_PARAM_UPDATE_EVENT:
       {
-    	  UART_write(uart, "\nGAP_LINK_PARAM_UPDATE_EVENT\n", 29);
+    	  UART_write(uart, "\fGAP_LINK_PARAM_UPDATE_EVENT\n", 29);
     	  listenAtUartRx=TRUE;
     	  LCD_WRITE_STRING_VALUE("Param Update:", pEvent->linkUpdate.status,
                                 10, LCD_PAGE2);
+          char def[32]={0};
+          char *str=itoa(scanRes,def, 10);
+          UART_write(uart,"scanRes:",strlen("scanRes:"));
+          UART_write(uart,str,strlen(str));
+          {
+        	  char def[32]={0};
+        	  char *str=itoa(scanIdx,def, 10);
+			UART_write(uart,"scanIdx:",strlen("scanIdx:"));
+			UART_write(uart,str,strlen(str));
+
+          }
+          //*********************************************************************************added code starts here by Yash
+    	        if (scanIdx < scanRes-1)
+    	                    {
+
+    	        			scanIdx++;
+
+    	                    LCD_WRITE_STRING_VALUE("Device", (scanIdx + 1), 10, LCD_PAGE2);
+
+    	                    LCD_WRITE_STRING(Util_convertBdAddr2Str(devList[scanIdx].addr), LCD_PAGE3);
+
+    	                                 // if there is a scan result
+    	                                 if (scanRes > 0)
+    	                                 {
+    	                                	  uint8_t addrType;
+    	                                                       	  uint8_t *peerAddr;
+    	                                 // connect to current device in scan result
+    	                                   peerAddr = devList[scanIdx].addr;
+    	                                   addrType = devList[scanIdx].addrType;
+
+    	                                   state = BLE_STATE_CONNECTING;
+    	           	        			UART_write(uart,"connecting..",strlen("connecting.."));
+    	                                   GAPCentralRole_EstablishLink(DEFAULT_LINK_HIGH_DUTY_CYCLE,
+    	                                                                DEFAULT_LINK_WHITE_LIST,
+    	                                                                addrType, peerAddr);
+
+    	                                   UART_write(uart,"connecting.2",strlen("connecting.."));
+
+    	                                   // added for fixing blocking isuue
+    	                                   attWriteReq_t req;
+										   req.pValue = GATT_bm_alloc(connHandle, ATT_WRITE_REQ, 1, NULL);
+										   if ( req.pValue != NULL )
+										   {
+											 req.handle = charHdl[0];
+											 req.len = 1;
+											 req.pValue[0] = charVal;
+											 req.sig = 0;
+											 req.cmd = 0;
+											 uint8_t status;
+											status = GATT_WriteCharValue(connHandle, &req, selfEntity);
+											if ( status != SUCCESS )
+											{
+											   GATT_bm_free((gattMsg_t *)&req, ATT_WRITE_REQ);
+											}
+    	                                   }
+										   //end of bug blocking issue
+
+    	                                   LCD_WRITE_STRING("Connecting", LCD_PAGE2);
+    	                                   LCD_WRITE_STRING(Util_convertBdAddr2Str(peerAddr), LCD_PAGE3);
+    	                                   LCD_WRITE_STRING("", LCD_PAGE4);
+    	                                 }
+
+    	                 }
+    	       //*********************************************************************************added code ends here by Ya
       }
       break;
       
@@ -1051,7 +1059,7 @@ static void SimpleBLECentral_handleKeys(uint8_t shift, uint8_t keys)
       }
     }
     else if (state == BLE_STATE_CONNECTED &&
-             charHdl != 0                 &&
+             charHdl[scanIdx] != 0                 &&
              procedureInProgress == FALSE)
     {
       uint8_t status;
@@ -1065,7 +1073,7 @@ static void SimpleBLECentral_handleKeys(uint8_t shift, uint8_t keys)
         req.pValue = GATT_bm_alloc(connHandle, ATT_WRITE_REQ, 1, NULL);
         if ( req.pValue != NULL )
         {
-          req.handle = charHdl;
+          req.handle = charHdl[scanIdx];
           req.len = 1;
           req.pValue[0] = charVal;
           req.sig = 0;
@@ -1083,7 +1091,7 @@ static void SimpleBLECentral_handleKeys(uint8_t shift, uint8_t keys)
         // Do a read
         attReadReq_t req;
         
-        req.handle = charHdl;
+        req.handle = charHdl[scanIdx];
         status = GATT_ReadCharValue(connHandle, &req, selfEntity);
       }
 
@@ -1201,6 +1209,8 @@ static void SimpleBLECentral_processGATTMsg(gattMsgEvent_t *pMsg)
         // After a successful read, display the read value
         LCD_WRITE_STRING_VALUE("Read rsp:", pMsg->msg.readRsp.pValue[0], 10,
                                LCD_PAGE4);
+        uint8_t val=pMsg->msg.readRsp.pValue[0];
+        UART_write(uart,&val,1);
       }
       
       procedureInProgress = FALSE;
@@ -1219,7 +1229,10 @@ static void SimpleBLECentral_processGATTMsg(gattMsgEvent_t *pMsg)
       {
         // After a succesful write, display the value that was written and
         // increment value
-        LCD_WRITE_STRING_VALUE("Write sent:", charVal++, 10, LCD_PAGE4);
+        //LCD_WRITE_STRING_VALUE("Write sent:", charVal++, 10, LCD_PAGE4);
+    	  LCD_WRITE_STRING_VALUE("write rsp:",charVal, 10,
+    	                                 LCD_PAGE4);
+    	  //UART_write(uart,&charVal,1);
       }
       
       procedureInProgress = FALSE;    
@@ -1291,6 +1304,8 @@ static void SimpleBLECentral_pairStateCB(uint16_t connHandle, uint8_t state,
                                          uint8_t status)
 {
   // Remember the new state and status
+	UART_write(uart,"\r\n\f SimpleBLECentral_pairStateCB:",strlen("\r\n\f SimpleBLECentral_pairStateCB:"));
+
   pairState = state;
   pairStatus = status;
   
@@ -1329,6 +1344,7 @@ static void SimpleBLECentral_processPairState(uint8_t state, uint8_t status)
 {
   if (state == GAPBOND_PAIRING_STATE_STARTED)
   {
+
     LCD_WRITE_STRING("Pairing started", LCD_PAGE2);
   }
   else if (state == GAPBOND_PAIRING_STATE_COMPLETE)
@@ -1389,7 +1405,7 @@ static void SimpleBLECentral_startDiscovery(void)
   attExchangeMTUReq_t req;
   
   // Initialize cached handles
-  svcStartHdl = svcEndHdl = charHdl = 0;
+  svcStartHdl = svcEndHdl = charHdl[scanIdx] = 0;
     
   discState = BLE_DISC_STATE_MTU;
   
@@ -1398,7 +1414,7 @@ static void SimpleBLECentral_startDiscovery(void)
   
   // ATT MTU size should be set to the minimum of the Client Rx MTU
   // and Server Rx MTU values
-  VOID GATT_ExchangeMTU(connHandle, &req, selfEntity);
+  VOID GATT_ExchangeMTU(connHandle[scanIdx], &req, selfEntity);
 }
 
 /*********************************************************************
@@ -1410,6 +1426,7 @@ static void SimpleBLECentral_startDiscovery(void)
  */
 static void SimpleBLECentral_processGATTDiscEvent(gattMsgEvent_t *pMsg)
 { 
+	UART_write(uart,"\r\n\f SimpleBLECentral_processGATTDiscEvent:",strlen("\r\n\f SimpleBLECentral_processGATTDiscEvent:"));
   if (pMsg->method == ATT_MTU_UPDATED_EVENT)
   {   
     // MTU size updated
@@ -1429,7 +1446,7 @@ static void SimpleBLECentral_processGATTDiscEvent(gattMsgEvent_t *pMsg)
       discState = BLE_DISC_STATE_SVC;
 
       // Discovery simple BLE service
-      VOID GATT_DiscPrimaryServiceByUUID(connHandle, uuid, ATT_BT_UUID_SIZE,
+      VOID GATT_DiscPrimaryServiceByUUID(connHandle[scanIdx], uuid, ATT_BT_UUID_SIZE,
                                          selfEntity);
     }
   }
@@ -1461,7 +1478,7 @@ static void SimpleBLECentral_processGATTDiscEvent(gattMsgEvent_t *pMsg)
         req.type.uuid[0] = LO_UINT16(SIMPLEPROFILE_CHAR1_UUID);
         req.type.uuid[1] = HI_UINT16(SIMPLEPROFILE_CHAR1_UUID);
 
-        VOID GATT_ReadUsingCharUUID(connHandle, &req, selfEntity);
+        VOID GATT_ReadUsingCharUUID(connHandle[scanIdx], &req, selfEntity);
       }
     }
   }
@@ -1471,9 +1488,15 @@ static void SimpleBLECentral_processGATTDiscEvent(gattMsgEvent_t *pMsg)
     if ((pMsg->method == ATT_READ_BY_TYPE_RSP) && 
         (pMsg->msg.readByTypeRsp.numPairs > 0))
     {
-      charHdl = BUILD_UINT16(pMsg->msg.readByTypeRsp.pDataList[0],
+
+    	charHdl[scanIdx] = BUILD_UINT16(pMsg->msg.readByTypeRsp.pDataList[0],
                              pMsg->msg.readByTypeRsp.pDataList[1]);
-      
+      UART_write(uart," writing charHdl:",strlen(" writing charHdl:"));
+      if(!scanIdx){
+    	  UART_write(uart," writing charHdl:0",strlen(" writing charHdl:0"));
+      }else{
+    	  UART_write(uart," writing charHdl:n",strlen(" writing charHdl:n"));
+      }
       LCD_WRITE_STRING("Simple Svc Found", LCD_PAGE2);
       procedureInProgress = FALSE;
     }
@@ -1492,6 +1515,8 @@ static void SimpleBLECentral_processGATTDiscEvent(gattMsgEvent_t *pMsg)
 static bool SimpleBLECentral_findSvcUuid(uint16_t uuid, uint8_t *pData, 
                                          uint8_t dataLen)
 {
+	UART_write(uart,"\r\n\f SimpleBLECentral_findSvcUuid:",strlen("\r\n\f SimpleBLECentral_findSvcUuid:"));
+
   uint8_t adLen;
   uint8_t adType;
   uint8_t *pEnd;
